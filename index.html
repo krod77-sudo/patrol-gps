@@ -19,6 +19,7 @@
     --line: #262626;
     --compass: #ffb000;
     --cross: #4fd1ff;
+    --cross-bg: rgba(79, 209, 255, .26);
     --warn: #ff5a4f;
   }
   body.day {
@@ -28,6 +29,7 @@
     --line: #d4d2c8;
     --compass: #a85400;
     --cross: #00588a;
+    --cross-bg: rgba(0, 88, 138, .22);
     --warn: #c4231a;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -92,27 +94,44 @@
   #r-street.weak #street { opacity: .55; }
   .dist { color: var(--fg); white-space: nowrap; }
 
+  /* ---- approaching / at an intersection ---- */
+  .row.approach, .row.at { margin: 0 -8px; padding-left: 8px; padding-right: 8px; }
+  .row.approach { animation: pulse .9s ease-in-out infinite; }
+  .row.approach .lbl span:first-child { color: var(--cross); }
+  @keyframes pulse { 0%, 100% { background: transparent; } 50% { background: var(--cross-bg); } }
+  @media (prefers-reduced-motion: reduce) { .row.approach { animation: none; background: var(--cross-bg); } }
+  #r-ahead.at { background: var(--cross); }
+  #r-ahead.at #ahead, #r-ahead.at .lbl, #r-ahead.at .lbl span, #r-ahead.at .dist { color: var(--bg); opacity: 1; }
+
   /* ---- map ---- */
   #mapwrap { flex: 2.6 1 0; min-height: 0; margin: 8px 0; border: 2px solid var(--line); position: relative; display: none; }
   body.showmap #mapwrap { display: block; }
   body.showmap #r-street  { flex: 1 1 0; }
   body.showmap #r-ahead   { flex: .62 1 0; }
   body.showmap #r-behind  { flex: .46 1 0; }
-  #map { position: absolute; inset: 0; background: #111; }
+  #mapwrap { overflow: hidden; }
+  #map { position: absolute; inset: 0; background: #111; transition: transform .5s linear; }
   body:not(.day) #map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) grayscale(.5); }
-  .leaflet-control-attribution { font-size: 9px !important; text-transform: none; font-weight: 400; }
-  #arrow { width: 44px; height: 44px; transition: transform .3s linear; }
+  .mctl { position: absolute; top: 8px; z-index: 1000; display: flex; flex-direction: column; gap: 6px; }
+  #mctlL { left: 8px; } #mctlR { right: 8px; }
+  .mctl button { min-width: 48px; height: 48px; padding: 0 8px; font-size: 22px; line-height: 1; background: rgba(0,0,0,.72); color: #f4f4f4; border-color: rgba(255,255,255,.28); }
+  #bRot { font-size: 12px; letter-spacing: .5px; }
+  body.day .mctl button { background: rgba(255,255,255,.85); color: #101010; border-color: rgba(0,0,0,.3); }
+  #attr { position: absolute; right: 0; bottom: 0; z-index: 1000; padding: 1px 5px; font-size: 10px; font-weight: 400; text-transform: none; background: rgba(0,0,0,.6); color: #ddd; }
+  #arrow { width: 44px; height: 44px; transition: transform .4s linear; }
   #arrow svg { width: 100%; height: 100%; filter: drop-shadow(0 0 3px #000); }
 
   /* ---- footer ---- */
   footer {
     flex: 0 0 auto;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-    padding: 8px 0 10px;
+    gap: 6px 8px;
+    padding: 6px 0 10px;
   }
-  #status { flex: 1; font-size: 12px; color: var(--dim); font-weight: 600; line-height: 1.25; }
+  #status { flex: 1 0 100%; font-size: 12px; color: var(--dim); font-weight: 600; line-height: 1.25; }
+  footer button { flex: 1 1 0; min-width: 0; padding: 0 4px; }
   #status.bad { color: var(--warn); }
   button {
     font: inherit;
@@ -134,7 +153,9 @@
     header { grid-column: 1; grid-row: 1 / 3; flex-direction: column; align-items: flex-start; justify-content: space-between; border-bottom: 0; padding: 8px 0; }
     #spd { text-align: left; }
     #right { grid-column: 2; grid-row: 1 / 3; display: flex; flex-direction: column; min-height: 0; }
-    footer { grid-column: 1 / 3; grid-row: 3; }
+    footer { grid-column: 1 / 3; grid-row: 3; flex-wrap: nowrap; }
+    #status { flex: 1 1 0; }
+    footer button { flex: 0 0 auto; min-width: 64px; }
   }
   #right { display: contents; }
   @media (orientation: landscape) and (max-height: 520px) { #right { display: flex; } }
@@ -166,12 +187,18 @@
       <div class="box"><div class="txt" id="behind">—</div></div>
     </section>
 
-    <div id="mapwrap"><div id="map"></div></div>
+    <div id="mapwrap">
+      <div id="map"></div>
+      <div class="mctl" id="mctlL"><button id="bRot" aria-label="Map orientation">N UP</button></div>
+      <div class="mctl" id="mctlR"><button id="bZin" aria-label="Zoom in">+</button><button id="bZout" aria-label="Zoom out">−</button></div>
+      <div id="attr">© OpenStreetMap</div>
+    </div>
   </div>
 
   <footer>
     <div id="status">STARTING…</div>
     <button id="bMap">MAP</button>
+    <button id="bAbbr">ABBR</button>
     <button id="bUnits">MPH</button>
     <button id="bTheme">NIGHT</button>
   </footer>
@@ -209,20 +236,44 @@ const FULL8 = ['NORTH', 'NORTHEAST', 'EAST', 'SOUTHEAST', 'SOUTH', 'SOUTHWEST', 
 const idx8 = h => Math.round(h / 45) % 8;
 
 /* ================= settings ================= */
-const cfg = Object.assign({ metric: false, map: false, day: false }, loadJSON('cfg', {}));
+const cfg = Object.assign({ metric: false, map: false, day: false, abbr: true, hdgUp: false, zoom: 17 }, loadJSON('cfg', {}));
 function applyCfg() {
   document.body.classList.toggle('day', cfg.day);
   document.body.classList.toggle('showmap', cfg.map);
   $('bMap').classList.toggle('on', cfg.map);
+  $('bAbbr').textContent = cfg.abbr ? 'ABBR' : 'FULL';
   $('bUnits').textContent = cfg.metric ? 'KM/H' : 'MPH';
   $('bTheme').textContent = cfg.day ? 'DAY' : 'NIGHT';
+  $('bRot').textContent = cfg.hdgUp ? 'HDG UP' : 'N UP';
+  $('bRot').classList.toggle('on', cfg.hdgUp);
   $('spdu').textContent = cfg.metric ? 'KM/H' : 'MPH';
   document.querySelector('meta[name=theme-color]').content = cfg.day ? '#f6f5ef' : '#000000';
   saveJSON('cfg', cfg);
 }
-$('bMap').onclick = () => { cfg.map = !cfg.map; applyCfg(); if (cfg.map) { ensureMap(); setTimeout(() => { map && map.invalidateSize(); updateMap(); }, 50); } layout(); };
+$('bMap').onclick = () => { cfg.map = !cfg.map; applyCfg(); if (cfg.map) { ensureMap(); setTimeout(() => { sizeMap(); updateMap(); }, 50); } layout(); };
+$('bAbbr').onclick = () => { cfg.abbr = !cfg.abbr; applyCfg(); render(); };
 $('bUnits').onclick = () => { cfg.metric = !cfg.metric; applyCfg(); render(); };
 $('bTheme').onclick = () => { cfg.day = !cfg.day; applyCfg(); };
+$('bRot').onclick = () => { cfg.hdgUp = !cfg.hdgUp; applyCfg(); sizeMap(); updateMap(); };
+$('bZin').onclick = () => { if (map) map.setZoom(Math.min(19, Math.round(map.getZoom()) + 1)); };
+$('bZout').onclick = () => { if (map) map.setZoom(Math.max(12, Math.round(map.getZoom()) - 1)); };
+
+/* ---- street name abbreviations (radio style): "West 46th Street" -> "W 46th St" ---- */
+const SUFFIX = { STREET: 'ST', AVENUE: 'AVE', BOULEVARD: 'BLVD', ROAD: 'RD', DRIVE: 'DR', LANE: 'LN', COURT: 'CT',
+  PLACE: 'PL', HIGHWAY: 'HWY', PARKWAY: 'PKWY', TERRACE: 'TER', CIRCLE: 'CIR', TRAIL: 'TRL', EXPRESSWAY: 'EXPY',
+  FREEWAY: 'FWY', TURNPIKE: 'TPKE', SQUARE: 'SQ', ALLEY: 'ALY', PLAZA: 'PLZ', LOOP: 'LP', CROSSING: 'XING',
+  HEIGHTS: 'HTS', BRIDGE: 'BRG', CAUSEWAY: 'CSWY' };
+const DIRS = { NORTH: 'N', SOUTH: 'S', EAST: 'E', WEST: 'W', NORTHEAST: 'NE', NORTHWEST: 'NW', SOUTHEAST: 'SE', SOUTHWEST: 'SW' };
+function abbrOne(name) {
+  const u = name.trim().split(/\s+/).map(x => x.toUpperCase());
+  if (u.length < 2) return name;
+  let end = u.length - 1, hadSuffix = false;
+  if (u.length >= 3 && DIRS[u[end]]) { u[end] = DIRS[u[end]]; end--; }          // "Main Street North"
+  if (end >= 1 && SUFFIX[u[end]]) { u[end] = SUFFIX[u[end]]; hadSuffix = true; }
+  if (DIRS[u[0]] && (hadSuffix ? end >= 2 : end >= 1)) u[0] = DIRS[u[0]];       // keep "West St" / "North Ave"
+  return u.join(' ');
+}
+const shown = name => cfg.abbr ? name.split(' / ').map(abbrOne).join(' / ') : name;
 
 function fmtDist(m) {
   if (m == null) return '';
@@ -443,7 +494,7 @@ function compute() {
 
 function setRow(prefix, labelText, r, hot, dimmed) {
   $(prefix + 'Lbl').textContent = labelText;
-  $(prefix).textContent = r ? r.name : 'NONE NEARBY';
+  $(prefix).textContent = r ? shown(r.name) : 'NONE NEARBY';
   $(prefix + 'Dist').textContent = r ? fmtDist(r.dist) : '';
   $('r-' + prefix).classList.toggle('hot', !!hot);
   $('r-' + prefix).classList.toggle('dim', !r || !!dimmed);
@@ -468,7 +519,7 @@ function render() {
     $('spdn').textContent = Math.round(pos.spd * (cfg.metric ? 3.6 : 2.23694));
   } else $('spdn').textContent = '--';
 
-  if (!pos) { $('street').textContent = 'ACQUIRING GPS…'; setRow('ahead', 'AHEAD', null); setRow('behind', 'BEHIND', null); layout(); return; }
+  if (!pos) { $('street').textContent = 'ACQUIRING GPS…'; setRow('ahead', 'AHEAD', null); setRow('behind', 'BEHIND', null); setCue(false, false); layout(); return; }
 
   result = compute();
   if (!result) return;
@@ -476,24 +527,39 @@ function render() {
     $('street').textContent = idx ? 'NOT ON A MAPPED STREET' : (fetching ? 'LOADING MAP…' : 'NO MAP DATA');
     $('r-street').classList.add('weak');
     $('streetNote').textContent = '';
-    setRow('ahead', 'AHEAD', null); setRow('behind', 'BEHIND', null);
+    setRow('ahead', 'AHEAD', null); setRow('behind', 'BEHIND', null); setCue(false, false);
     layout(); return;
   }
-  $('street').textContent = result.street;
+  $('street').textContent = shown(result.street);
   $('r-street').classList.toggle('weak', result.off > 50);
   $('streetNote').textContent = result.off > 50 ? 'NEAR' : '';
 
   const A = result.ahead, B = result.behind;
   const nearest = (A && B) ? (A.dist <= B.dist ? 'a' : 'b') : (A ? 'a' : (B ? 'b' : null));
-  const lab = (r, base) => (r && r.dist < 25) ? 'AT' : base;
+  const AT_M = 15;   // within ~50 ft of the intersection counts as "AT"
+  const lab = (r, base) => (r && r.dist < AT_M) ? 'AT' : base;
   if (result.oriented) {
-    setRow('ahead', lab(A, 'AHEAD'), A, nearest === 'a');
+    // approach cue: within ~7 seconds of the intersection (min 75 m) while moving
+    const moving = pos.spd != null && pos.spd >= 2;
+    const zone = Math.max(75, (pos.spd || 0) * 7);
+    const at = !!(A && A.dist < AT_M);
+    const approaching = !!(A && moving && !at && A.dist <= zone);
+    setRow('ahead', at ? 'AT' : approaching ? 'APPROACHING' : 'AHEAD', A, nearest === 'a');
     setRow('behind', lab(B, 'BEHIND'), B, nearest === 'b', nearest !== 'b');
+    setCue(approaching, at);
+    if ((approaching || at) && A.name !== alertedFor) { alertedFor = A.name; try { navigator.vibrate && navigator.vibrate(120); } catch {} }
+    if (!A || A.dist > zone * 1.3 + 25) alertedFor = null;
   } else {
     setRow('ahead', lab(A, 'NEAREST CROSS'), A, true);
     setRow('behind', lab(B, 'NEXT NEAREST'), B, false, true);
+    setCue(false, false);
   }
   layout();
+}
+let alertedFor = null;
+function setCue(approaching, at) {
+  $('r-ahead').classList.toggle('approach', approaching);
+  $('r-ahead').classList.toggle('at', at);
 }
 
 /* shrink text until it fits its box */
@@ -513,7 +579,7 @@ function layout() {
   fit($('ahead'), Math.min(big * 0.52, 72), 14);
   fit($('behind'), Math.min(big * 0.40, 56), 12);
 }
-addEventListener('resize', () => { layout(); map && map.invalidateSize(); });
+addEventListener('resize', () => { layout(); sizeMap(); });
 
 /* ================= status line ================= */
 let gpsMsg = 'WAITING FOR GPS…', gpsBad = false, dataMsg = '', dataBad = false;
@@ -535,10 +601,31 @@ setInterval(() => {
 
 /* ================= map (OpenStreetMap tiles, Leaflet) ================= */
 let map = null, marker = null, mapFollow = true, mapZoomed = false;
+let rotAcc = 0, lastRotHdg = null;   // unwrapped heading so the map/arrow never spin the long way round
+
+// In heading-up mode the map element is a big square (so rotated corners stay covered) turned by -heading.
+function sizeMap() {
+  const w = $('mapwrap'), m = $('map');
+  const W = w.clientWidth, H = w.clientHeight;
+  if (cfg.hdgUp && W && H) {
+    const s = Math.ceil(Math.hypot(W, H));
+    Object.assign(m.style, { width: s + 'px', height: s + 'px', left: (W - s) / 2 + 'px', top: (H - s) / 2 + 'px' });
+  } else {
+    Object.assign(m.style, { width: '', height: '', left: '', top: '', transform: '' });
+  }
+  if (map) {
+    map.invalidateSize({ animate: false });
+    map.dragging[cfg.hdgUp ? 'disable' : 'enable']();   // dragging a rotated map is confusing; it follows you anyway
+    if (cfg.hdgUp) mapFollow = true;
+  }
+}
 function ensureMap() {
   if (map || typeof L === 'undefined') return;
-  map = L.map('map', { zoomControl: false, attributionControl: true, zoomSnap: 0.5 }).setView(pos ? [pos.lat, pos.lon] : [39, -98], pos ? 17 : 4);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  map = L.map('map', { zoomControl: false, attributionControl: false, zoomSnap: 0.5, touchZoom: 'center', doubleClickZoom: 'center' })
+    .setView(pos ? [pos.lat, pos.lon] : [39, -98], pos ? cfg.zoom : 4);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  map.on('zoomend', () => { if (mapZoomed) { cfg.zoom = map.getZoom(); saveJSON('cfg', cfg); } });
+  sizeMap();
   const icon = L.divIcon({
     className: '', iconSize: [44, 44], iconAnchor: [22, 22],
     html: '<div id="arrow"><svg viewBox="0 0 44 44"><path d="M22 3 L36 38 L22 30 L8 38 Z" fill="#ffb000" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/></svg></div>'
@@ -549,9 +636,15 @@ function ensureMap() {
 function updateMap() {
   if (!cfg.map || !map || !pos) return;
   marker.setLatLng([pos.lat, pos.lon]);
+  if (heading != null) {
+    if (lastRotHdg == null) rotAcc = heading;
+    else rotAcc += ((heading - lastRotHdg + 540) % 360) - 180;
+    lastRotHdg = heading;
+  }
   const a = document.getElementById('arrow');
-  if (a && heading != null) a.style.transform = 'rotate(' + heading + 'deg)';
-  if (!mapZoomed) { mapZoomed = true; map.setView([pos.lat, pos.lon], 17, { animate: false }); }
+  if (a) a.style.transform = 'rotate(' + rotAcc + 'deg)';       // arrow lives inside the (possibly rotated) map, so same rule both modes
+  $('map').style.transform = cfg.hdgUp ? 'rotate(' + (-rotAcc) + 'deg)' : '';
+  if (!mapZoomed) { mapZoomed = true; map.setView([pos.lat, pos.lon], cfg.zoom, { animate: false }); }
   else if (mapFollow) map.setView([pos.lat, pos.lon], map.getZoom(), { animate: false });
 }
 
@@ -582,7 +675,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
 window.__feed = (lat, lon, hdg, spd, acc) => onPosition({ lat, lon, hdg, spd, acc: acc ?? 5, ts: Date.now() });
 
 applyCfg();
-if (cfg.map) setTimeout(() => { ensureMap(); updateMap(); }, 0);
+if (cfg.map) setTimeout(() => { ensureMap(); sizeMap(); updateMap(); }, 0);
 layout();
 keepAwake();
 startGPS();
