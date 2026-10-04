@@ -1,0 +1,13 @@
+{
+  "name": "Patrol GPS",
+  "short_name": "Patrol GPS",
+  "description": "Current street, nearest cross street and compass heading.",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

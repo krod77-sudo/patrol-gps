@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Patrol GPS</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #000;
+    --fg: #f4f4f4;
+    --dim: #7c7c7c;
+    --line: #262626;
+    --compass: #ffb000;
+    --cross: #4fd1ff;
+    --warn: #ff5a4f;
+  }
+  body.day {
+    --bg: #f6f5ef;
+    --fg: #101010;
+    --dim: #6a6a6a;
+    --line: #d4d2c8;
+    --compass: #a85400;
+    --cross: #00588a;
+    --warn: #c4231a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); overflow: hidden; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-weight: 800;
+    text-transform: uppercase;
+    user-select: none;
+  }
+  #app {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(12px, env(safe-area-inset-left));
+  }
+
+  /* ---- header: compass + speed ---- */
+  header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 8px 0 6px;
+    border-bottom: 2px solid var(--line);
+    flex: 0 0 auto;
+  }
+  #dir { display: flex; align-items: baseline; gap: 14px; color: var(--compass); }
+  #card { font-size: clamp(56px, 17vmin, 120px); line-height: .9; letter-spacing: -2px; }
+  #dirtxt { display: flex; flex-direction: column; font-size: clamp(14px, 3.4vmin, 24px); line-height: 1.15; }
+  #deg { color: var(--fg); }
+  #dir.stale { opacity: .45; }
+  #spd { text-align: right; line-height: .95; }
+  #spdn { font-size: clamp(44px, 13vmin, 96px); }
+  #spdu { display: block; font-size: clamp(12px, 3vmin, 20px); color: var(--dim); }
+
+  /* ---- rows ---- */
+  .row {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 6px 0;
+    border-bottom: 2px solid var(--line);
+  }
+  .lbl {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    font-size: clamp(12px, 2.8vmin, 18px);
+    color: var(--dim);
+    letter-spacing: 1px;
+  }
+  .box { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; }
+  .txt { line-height: 1.02; overflow-wrap: anywhere; width: 100%; }
+
+  #r-street { flex: 1.35 1 0; }
+  #r-ahead  { flex: 1 1 0; }
+  #r-behind { flex: .75 1 0; }
+  #street { color: var(--fg); }
+  #ahead, #behind { color: var(--cross); }
+  .row.dim .txt { opacity: .5; }
+  .row.hot .lbl span:first-child { color: var(--cross); }
+  #r-street.weak #street { opacity: .55; }
+  .dist { color: var(--fg); white-space: nowrap; }
+
+  /* ---- map ---- */
+  #mapwrap { flex: 1.6 1 0; min-height: 0; margin: 8px 0; border: 2px solid var(--line); position: relative; display: none; }
+  body.showmap #mapwrap { display: block; }
+  body.showmap #r-street  { flex: 1 1 0; }
+  body.showmap #r-ahead   { flex: .8 1 0; }
+  body.showmap #r-behind  { flex: .6 1 0; }
+  #map { position: absolute; inset: 0; background: #111; }
+  body:not(.day) #map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) grayscale(.5); }
+  .leaflet-control-attribution { font-size: 9px !important; text-transform: none; font-weight: 400; }
+  #arrow { width: 44px; height: 44px; transition: transform .3s linear; }
+  #arrow svg { width: 100%; height: 100%; filter: drop-shadow(0 0 3px #000); }
+
+  /* ---- footer ---- */
+  footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 10px;
+  }
+  #status { flex: 1; font-size: 12px; color: var(--dim); font-weight: 600; line-height: 1.25; }
+  #status.bad { color: var(--warn); }
+  button {
+    font: inherit;
+    font-size: 13px;
+    letter-spacing: 1px;
+    min-width: 62px;
+    height: 44px;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--fg);
+    border: 2px solid var(--line);
+    border-radius: 8px;
+  }
+  button.on { border-color: var(--compass); color: var(--compass); }
+  button:active { background: var(--line); }
+
+  @media (orientation: landscape) and (max-height: 520px) {
+    #app { display: grid; grid-template-columns: 1fr 1.7fr; grid-template-rows: auto 1fr auto; column-gap: 16px; }
+    header { grid-column: 1; grid-row: 1 / 3; flex-direction: column; align-items: flex-start; justify-content: space-between; border-bottom: 0; padding: 8px 0; }
+    #spd { text-align: left; }
+    #right { grid-column: 2; grid-row: 1 / 3; display: flex; flex-direction: column; min-height: 0; }
+    footer { grid-column: 1 / 3; grid-row: 3; }
+  }
+  #right { display: contents; }
+  @media (orientation: landscape) and (max-height: 520px) { #right { display: flex; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div id="dir" class="stale">
+      <div id="card">--</div>
+      <div id="dirtxt"><span id="full">NO HEADING</span><span id="deg"></span></div>
+    </div>
+    <div id="spd"><span id="spdn">--</span><span id="spdu">MPH</span></div>
+  </header>
+
+  <div id="right">
+    <section class="row" id="r-street">
+      <div class="lbl"><span>ON</span><span id="streetNote"></span></div>
+      <div class="box"><div class="txt" id="street">ACQUIRING GPS…</div></div>
+    </section>
+
+    <section class="row" id="r-ahead">
+      <div class="lbl"><span id="aheadLbl">AHEAD</span><span class="dist" id="aheadDist"></span></div>
+      <div class="box"><div class="txt" id="ahead">—</div></div>
+    </section>
+
+    <section class="row" id="r-behind">
+      <div class="lbl"><span id="behindLbl">BEHIND</span><span class="dist" id="behindDist"></span></div>
+      <div class="box"><div class="txt" id="behind">—</div></div>
+    </section>
+
+    <div id="mapwrap"><div id="map"></div></div>
+  </div>
+
+  <footer>
+    <div id="status">STARTING…</div>
+    <button id="bMap">MAP</button>
+    <button id="bUnits">MPH</button>
+    <button id="bTheme">NIGHT</button>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+const toRad = d => d * Math.PI / 180;
+const toDeg = r => r * 180 / Math.PI;
+const M_PER_DEG = 111320;
+
+function loadJSON(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+}
+function saveJSON(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+
+function distM(lat1, lon1, lat2, lon2) {
+  const k = Math.cos(toRad((lat1 + lat2) / 2));
+  return Math.hypot((lat2 - lat1) * M_PER_DEG, (lon2 - lon1) * M_PER_DEG * k);
+}
+function bearing(lat1, lon1, lat2, lon2) {
+  const k = Math.cos(toRad((lat1 + lat2) / 2));
+  const dy = (lat2 - lat1), dx = (lon2 - lon1) * k;
+  return (toDeg(Math.atan2(dx, dy)) + 360) % 360;
+}
+function angDiff(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+
+const CARD8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const FULL8 = ['NORTH', 'NORTHEAST', 'EAST', 'SOUTHEAST', 'SOUTH', 'SOUTHWEST', 'WEST', 'NORTHWEST'];
+const idx8 = h => Math.round(h / 45) % 8;
+
+/* ================= settings ================= */
+const cfg = Object.assign({ metric: false, map: false, day: false }, loadJSON('cfg', {}));
+function applyCfg() {
+  document.body.classList.toggle('day', cfg.day);
+  document.body.classList.toggle('showmap', cfg.map);
+  $('bMap').classList.toggle('on', cfg.map);
+  $('bUnits').textContent = cfg.metric ? 'KM/H' : 'MPH';
+  $('bTheme').textContent = cfg.day ? 'DAY' : 'NIGHT';
+  $('spdu').textContent = cfg.metric ? 'KM/H' : 'MPH';
+  document.querySelector('meta[name=theme-color]').content = cfg.day ? '#f6f5ef' : '#000000';
+  saveJSON('cfg', cfg);
+}
+$('bMap').onclick = () => { cfg.map = !cfg.map; applyCfg(); if (cfg.map) { ensureMap(); setTimeout(() => { map && map.invalidateSize(); updateMap(); }, 50); } layout(); };
+$('bUnits').onclick = () => { cfg.metric = !cfg.metric; applyCfg(); render(); };
+$('bTheme').onclick = () => { cfg.day = !cfg.day; applyCfg(); };
+
+function fmtDist(m) {
+  if (m == null) return '';
+  if (cfg.metric) return m < 1000 ? Math.max(10, Math.round(m / 10) * 10) + ' M' : (m / 1000).toFixed(1) + ' KM';
+  const ft = m * 3.28084;
+  return ft < 1000 ? Math.max(10, Math.round(ft / 10) * 10) + ' FT' : (ft / 5280).toFixed(1) + ' MI';
+}
+
+/* ================= OSM street data (Overpass) ================= */
+const ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+];
+const HW = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|road|' +
+           'motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
+const FETCH_RADIUS = 800;   // m of data loaded around the fetch point
+const REFETCH_DIST = 300;   // reload when this far from last fetch center
+const SEARCH_MAX = 500;     // m: how far along the street to look for cross streets
+
+let idx = null;             // {center:[lat,lon], ways, nodeXY, nodeNames, adj}
+let fetching = false, lastFetchTry = 0, epi = 0, dataState = 'NO MAP DATA';
+
+function buildIndex(center, ways) {
+  const nodeXY = new Map(), nodeNames = new Map();
+  for (const w of ways) {
+    for (let i = 0; i < w.nodes.length; i++) {
+      nodeXY.set(w.nodes[i], w.pts[i]);
+      let s = nodeNames.get(w.nodes[i]);
+      if (!s) nodeNames.set(w.nodes[i], s = new Set());
+      s.add(w.name);
+    }
+  }
+  return { center, ways, nodeXY, nodeNames, adj: new Map() };
+}
+
+function adjFor(name) {
+  let a = idx.adj.get(name);
+  if (a) return a;
+  a = new Map();
+  const add = (x, y, d) => { let l = a.get(x); if (!l) a.set(x, l = []); l.push([y, d]); };
+  for (const w of idx.ways) {
+    if (w.name !== name) continue;
+    for (let i = 0; i < w.nodes.length - 1; i++) {
+      const p = w.pts[i], q = w.pts[i + 1];
+      const d = distM(p[0], p[1], q[0], q[1]);
+      add(w.nodes[i], w.nodes[i + 1], d);
+      add(w.nodes[i + 1], w.nodes[i], d);
+    }
+  }
+  idx.adj.set(name, a);
+  return a;
+}
+
+function parseOverpass(json) {
+  const ways = [];
+  for (const e of json.elements || []) {
+    if (e.type !== 'way' || !e.geometry || !e.nodes) continue;
+    const t = e.tags || {};
+    const name = t.name || t.ref;
+    if (!name) continue;
+    ways.push({ name, nodes: e.nodes, pts: e.geometry.map(g => [g.lat, g.lon]) });
+  }
+  return ways;
+}
+
+async function fetchRegion(lat, lon) {
+  fetching = true; lastFetchTry = Date.now();
+  setData('LOADING MAP DATA…');
+  const q = `[out:json][timeout:20];way(around:${FETCH_RADIUS},${lat.toFixed(5)},${lon.toFixed(5)})["highway"~"^(${HW})$"];out geom;`;
+  const start = loadJSON('epi', 0) % ENDPOINTS.length;
+  for (let n = 0; n < ENDPOINTS.length; n++) {
+    const ei = (start + n) % ENDPOINTS.length;
+    try {
+      const ctl = new AbortController();
+      const to = setTimeout(() => ctl.abort(), 25000);
+      const r = await fetch(ENDPOINTS[ei], { method: 'POST', body: 'data=' + encodeURIComponent(q),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal });
+      clearTimeout(to);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const ways = parseOverpass(await r.json());
+      idx = buildIndex([lat, lon], ways);
+      saveJSON('epi', ei);
+      saveJSON('region', { center: [lat, lon], ways, ts: Date.now() });
+      setData('MAP DATA OK');
+      fetching = false;
+      render();
+      return;
+    } catch (err) { /* try next endpoint */ }
+  }
+  fetching = false;
+  setData(idx ? 'MAP DATA STALE (OFFLINE?)' : 'NO MAP DATA (OFFLINE?)', true);
+}
+
+function loadCachedRegion(lat, lon) {
+  const c = loadJSON('region', null);
+  if (c && c.ways && distM(lat, lon, c.center[0], c.center[1]) < REFETCH_DIST) {
+    idx = buildIndex(c.center, c.ways);
+    setData('MAP DATA (CACHED)');
+  }
+}
+
+function maybeFetch(lat, lon) {
+  if (!idx && !fetching) loadCachedRegion(lat, lon);
+  if (fetching || Date.now() - lastFetchTry < 8000) return;
+  if (!idx || distM(lat, lon, idx.center[0], idx.center[1]) > REFETCH_DIST) fetchRegion(lat, lon);
+}
+
+/* ================= matching: which street, which cross streets ================= */
+let currentName = null;
+
+function matchStreet(lat, lon, heading, useHeading) {
+  if (!idx) return null;
+  const ky = M_PER_DEG, kx = M_PER_DEG * Math.cos(toRad(lat));
+  let best = null;
+  for (const w of idx.ways) {
+    for (let i = 0; i < w.pts.length - 1; i++) {
+      const ax = (w.pts[i][1] - lon) * kx, ay = (w.pts[i][0] - lat) * ky;
+      const bx = (w.pts[i + 1][1] - lon) * kx, by = (w.pts[i + 1][0] - lat) * ky;
+      const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+      const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0;
+      const d = Math.hypot(ax + t * dx, ay + t * dy);
+      if (d > 120) continue;
+      const sb = (toDeg(Math.atan2(dx, dy)) + 360) % 360;
+      let score = d;
+      if (useHeading) {
+        const ad = angDiff(heading, sb), u = Math.min(ad, 180 - ad);
+        score += u > 60 ? 30 : u > 35 ? 12 : 0;      // prefer streets we're travelling along
+      }
+      if (w.name === currentName) score -= 10;        // hysteresis: don't flicker between streets
+      if (!best || score < best.score) best = { score, d, w, i, sb };
+    }
+  }
+  return best;
+}
+
+function crossNames(node, name) {
+  const s = idx.nodeNames.get(node);
+  if (!s) return '';
+  const out = [];
+  for (const n of s) if (n !== name) out.push(n);
+  out.sort();
+  return out.slice(0, 2).join(' / ');
+}
+
+// Walk the street (Dijkstra over same-named ways) until a node shared with a differently named way.
+function search(name, start, d0, banA, banB) {
+  const adj = adjFor(name);
+  const dist = new Map([[start, d0]]);
+  const done = new Set();
+  for (;;) {
+    let cur = null, cd = Infinity;
+    for (const [n, d] of dist) if (!done.has(n) && d < cd) { cur = n; cd = d; }
+    if (cur === null || cd > SEARCH_MAX) return null;
+    done.add(cur);
+    const nm = crossNames(cur, name);
+    if (nm) return { name: nm, dist: cd };
+    for (const [nb, w] of adj.get(cur) || []) {
+      if ((cur === banA && nb === banB) || (cur === banB && nb === banA)) continue;
+      const nd = cd + w;
+      if (nd < (dist.get(nb) ?? Infinity)) dist.set(nb, nd);
+    }
+  }
+}
+
+/* ================= GPS state ================= */
+let pos = null;                 // {lat, lon, acc, spd, ts}
+let heading = null;             // last known heading (deg)
+let headingTs = 0;              // when heading was last refreshed from movement
+let anchor = null;              // last point used for derived heading
+let result = null;              // last render model
+
+function updateHeading(p) {
+  const now = Date.now();
+  const moving = p.spd == null || p.spd >= 1.0;
+  if (p.spd != null && p.spd >= 1.8 && p.hdg != null && !isNaN(p.hdg)) {
+    heading = p.hdg; headingTs = now; anchor = { lat: p.lat, lon: p.lon };
+  } else if (!anchor) {
+    anchor = { lat: p.lat, lon: p.lon };
+  } else if (moving) {
+    const d = distM(anchor.lat, anchor.lon, p.lat, p.lon);
+    if (d >= 20) {
+      heading = bearing(anchor.lat, anchor.lon, p.lat, p.lon);
+      headingTs = now; anchor = { lat: p.lat, lon: p.lon };
+    }
+  }
+}
+
+function onPosition(p) {
+  pos = p;
+  updateHeading(p);
+  maybeFetch(p.lat, p.lon);
+  render();
+  updateMap();
+}
+
+/* ================= render ================= */
+function compute() {
+  if (!pos) return null;
+  const fresh = Date.now() - headingTs < 6000;
+  const m = matchStreet(pos.lat, pos.lon, heading, heading != null && fresh);
+  if (!m) return { street: null };
+  currentName = m.w.name;
+  const w = m.w, i = m.i;
+  const a = w.nodes[i], b = w.nodes[i + 1];
+  const fwd  = search(w.name, b, distM(pos.lat, pos.lon, w.pts[i + 1][0], w.pts[i + 1][1]), a, b);
+  const back = search(w.name, a, distM(pos.lat, pos.lon, w.pts[i][0], w.pts[i][1]), a, b);
+  let rows;
+  if (heading != null) {
+    const fwdAhead = angDiff(heading, m.sb) < 90;
+    rows = { ahead: fwdAhead ? fwd : back, behind: fwdAhead ? back : fwd, oriented: true };
+  } else {
+    const l = [fwd, back].filter(Boolean).sort((x, y) => x.dist - y.dist);
+    rows = { ahead: l[0] || null, behind: l[1] || null, oriented: false };
+  }
+  return { street: w.name, off: m.d, ...rows };
+}
+
+function setRow(prefix, labelText, r, hot, dimmed) {
+  $(prefix + 'Lbl').textContent = labelText;
+  $(prefix).textContent = r ? r.name : 'NONE NEARBY';
+  $(prefix + 'Dist').textContent = r ? fmtDist(r.dist) : '';
+  $('r-' + prefix).classList.toggle('hot', !!hot);
+  $('r-' + prefix).classList.toggle('dim', !r || !!dimmed);
+}
+
+function render() {
+  const now = Date.now();
+  // heading block
+  const dirEl = $('dir');
+  if (heading != null) {
+    const k = idx8(heading);
+    $('card').textContent = CARD8[k];
+    $('full').textContent = FULL8[k];
+    $('deg').textContent = Math.round(heading) + '°';
+    dirEl.classList.toggle('stale', now - headingTs > 6000);
+  } else {
+    $('card').textContent = '--'; $('full').textContent = 'NO HEADING'; $('deg').textContent = '';
+    dirEl.classList.add('stale');
+  }
+  // speed
+  if (pos && pos.spd != null) {
+    $('spdn').textContent = Math.round(pos.spd * (cfg.metric ? 3.6 : 2.23694));
+  } else $('spdn').textContent = '--';
+
+  if (!pos) { $('street').textContent = 'ACQUIRING GPS…'; setRow('ahead', 'AHEAD', null); setRow('behind', 'BEHIND', null); layout(); return; }
+
+  result = compute();
+  if (!result) return;
+  if (!result.street) {
+    $('street').textContent = idx ? 'NOT ON A MAPPED STREET' : (fetching ? 'LOADING MAP…' : 'NO MAP DATA');
+    $('r-street').classList.add('weak');
+    $('streetNote').textContent = '';
+    setRow('ahead', 'AHEAD', null); setRow('behind', 'BEHIND', null);
+    layout(); return;
+  }
+  $('street').textContent = result.street;
+  $('r-street').classList.toggle('weak', result.off > 50);
+  $('streetNote').textContent = result.off > 50 ? 'NEAR' : '';
+
+  const A = result.ahead, B = result.behind;
+  const nearest = (A && B) ? (A.dist <= B.dist ? 'a' : 'b') : (A ? 'a' : (B ? 'b' : null));
+  const lab = (r, base) => (r && r.dist < 25) ? 'AT' : base;
+  if (result.oriented) {
+    setRow('ahead', lab(A, 'AHEAD'), A, nearest === 'a');
+    setRow('behind', lab(B, 'BEHIND'), B, nearest === 'b', nearest !== 'b');
+  } else {
+    setRow('ahead', lab(A, 'NEAREST CROSS'), A, true);
+    setRow('behind', lab(B, 'NEXT NEAREST'), B, false, true);
+  }
+  layout();
+}
+
+/* shrink text until it fits its box */
+function fit(el, max, min) {
+  const box = el.parentElement;
+  let s = max;
+  el.style.fontSize = s + 'px';
+  while (s > min && (el.scrollHeight > box.clientHeight + 1 || el.scrollWidth > box.clientWidth + 1)) {
+    s -= 3; el.style.fontSize = s + 'px';
+  }
+}
+function layout() {
+  const vm = Math.min(innerWidth, innerHeight);
+  const landscape = innerWidth > innerHeight;
+  const big = landscape ? innerHeight * 0.30 : innerWidth * 0.20;
+  fit($('street'), Math.min(big, 140), 18);
+  fit($('ahead'), Math.min(big * 0.72, 100), 16);
+  fit($('behind'), Math.min(big * 0.55, 76), 14);
+}
+addEventListener('resize', () => { layout(); map && map.invalidateSize(); });
+
+/* ================= status line ================= */
+let gpsMsg = 'WAITING FOR GPS…', gpsBad = false, dataMsg = '', dataBad = false;
+function setData(msg, bad) { dataMsg = msg; dataBad = !!bad; paintStatus(); }
+function paintStatus() {
+  const s = $('status');
+  s.textContent = [gpsMsg, dataMsg].filter(Boolean).join(' · ');
+  s.classList.toggle('bad', gpsBad || dataBad);
+}
+setInterval(() => {
+  if (pos) {
+    const age = (Date.now() - pos.ts) / 1000;
+    if (age > 6) { gpsMsg = 'GPS LOST ' + Math.round(age) + 'S'; gpsBad = true; }
+    else { gpsMsg = 'GPS ±' + (cfg.metric ? Math.round(pos.acc) + ' M' : Math.round(pos.acc * 3.28084) + ' FT'); gpsBad = pos.acc > 60; }
+    render();
+  }
+  paintStatus();
+}, 1000);
+
+/* ================= map (OpenStreetMap tiles, Leaflet) ================= */
+let map = null, marker = null, mapFollow = true;
+function ensureMap() {
+  if (map || typeof L === 'undefined') return;
+  map = L.map('map', { zoomControl: false, attributionControl: true, zoomSnap: 0.5 }).setView(pos ? [pos.lat, pos.lon] : [39, -98], pos ? 17 : 4);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  const icon = L.divIcon({
+    className: '', iconSize: [44, 44], iconAnchor: [22, 22],
+    html: '<div id="arrow"><svg viewBox="0 0 44 44"><path d="M22 3 L36 38 L22 30 L8 38 Z" fill="#ffb000" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/></svg></div>'
+  });
+  marker = L.marker(pos ? [pos.lat, pos.lon] : [39, -98], { icon, interactive: false, keyboard: false }).addTo(map);
+  map.on('dragstart', () => { mapFollow = false; clearTimeout(ensureMap.t); ensureMap.t = setTimeout(() => { mapFollow = true; updateMap(); }, 12000); });
+}
+function updateMap() {
+  if (!cfg.map || !map || !pos) return;
+  marker.setLatLng([pos.lat, pos.lon]);
+  const a = document.getElementById('arrow');
+  if (a && heading != null) a.style.transform = 'rotate(' + heading + 'deg)';
+  if (mapFollow) map.setView([pos.lat, pos.lon], map.getZoom(), { animate: false });
+}
+
+/* ================= start ================= */
+function startGPS() {
+  if (!('geolocation' in navigator)) { gpsMsg = 'NO GPS ON THIS DEVICE'; gpsBad = true; paintStatus(); return; }
+  navigator.geolocation.watchPosition(
+    p => onPosition({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy || 0,
+                      spd: p.coords.speed, hdg: p.coords.heading, ts: Date.now() }),
+    e => {
+      gpsBad = true;
+      gpsMsg = e.code === 1 ? 'LOCATION PERMISSION DENIED — ENABLE IT IN BROWSER SETTINGS' : 'GPS ERROR — ' + (e.message || 'NO SIGNAL');
+      paintStatus();
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+  );
+}
+
+/* keep screen on while the app is open */
+let wake = null;
+async function keepAwake() { try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wake = await navigator.wakeLock.request('screen'); } catch {} }
+document.addEventListener('visibilitychange', keepAwake);
+addEventListener('pointerdown', keepAwake, { once: true });
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
+// Test hook: window.__feed(lat, lon, headingDeg, speedMps, accuracyM) injects a position fix.
+window.__feed = (lat, lon, hdg, spd, acc) => onPosition({ lat, lon, hdg, spd, acc: acc ?? 5, ts: Date.now() });
+
+applyCfg();
+if (cfg.map) setTimeout(() => { ensureMap(); updateMap(); }, 0);
+layout();
+keepAwake();
+startGPS();
+})();
+</script>
+</body>
+</html>
