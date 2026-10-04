@@ -236,7 +236,9 @@ const FULL8 = ['NORTH', 'NORTHEAST', 'EAST', 'SOUTHEAST', 'SOUTH', 'SOUTHWEST', 
 const idx8 = h => Math.round(h / 45) % 8;
 
 /* ================= settings ================= */
-const cfg = Object.assign({ metric: false, map: false, day: false, abbr: true, hdgUp: false, zoom: 17 }, loadJSON('cfg', {}));
+const storedCfg = loadJSON('cfg', {});
+const cfg = Object.assign({ v: 2, metric: false, map: true, day: false, abbr: true, hdgUp: false, zoom: 17 }, storedCfg);
+if (!storedCfg.v) cfg.map = true;   // v2: map on by default, including for settings saved by earlier versions
 function applyCfg() {
   document.body.classList.toggle('day', cfg.day);
   document.body.classList.toggle('showmap', cfg.map);
