@@ -93,11 +93,11 @@
   .dist { color: var(--fg); white-space: nowrap; }
 
   /* ---- map ---- */
-  #mapwrap { flex: 1.6 1 0; min-height: 0; margin: 8px 0; border: 2px solid var(--line); position: relative; display: none; }
+  #mapwrap { flex: 2.6 1 0; min-height: 0; margin: 8px 0; border: 2px solid var(--line); position: relative; display: none; }
   body.showmap #mapwrap { display: block; }
   body.showmap #r-street  { flex: 1 1 0; }
-  body.showmap #r-ahead   { flex: .8 1 0; }
-  body.showmap #r-behind  { flex: .6 1 0; }
+  body.showmap #r-ahead   { flex: .62 1 0; }
+  body.showmap #r-behind  { flex: .46 1 0; }
   #map { position: absolute; inset: 0; background: #111; }
   body:not(.day) #map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) grayscale(.5); }
   .leaflet-control-attribution { font-size: 9px !important; text-transform: none; font-weight: 400; }
@@ -510,8 +510,8 @@ function layout() {
   const landscape = innerWidth > innerHeight;
   const big = landscape ? innerHeight * 0.30 : innerWidth * 0.20;
   fit($('street'), Math.min(big, 140), 18);
-  fit($('ahead'), Math.min(big * 0.72, 100), 16);
-  fit($('behind'), Math.min(big * 0.55, 76), 14);
+  fit($('ahead'), Math.min(big * 0.52, 72), 14);
+  fit($('behind'), Math.min(big * 0.40, 56), 12);
 }
 addEventListener('resize', () => { layout(); map && map.invalidateSize(); });
 
@@ -534,7 +534,7 @@ setInterval(() => {
 }, 1000);
 
 /* ================= map (OpenStreetMap tiles, Leaflet) ================= */
-let map = null, marker = null, mapFollow = true;
+let map = null, marker = null, mapFollow = true, mapZoomed = false;
 function ensureMap() {
   if (map || typeof L === 'undefined') return;
   map = L.map('map', { zoomControl: false, attributionControl: true, zoomSnap: 0.5 }).setView(pos ? [pos.lat, pos.lon] : [39, -98], pos ? 17 : 4);
@@ -551,7 +551,8 @@ function updateMap() {
   marker.setLatLng([pos.lat, pos.lon]);
   const a = document.getElementById('arrow');
   if (a && heading != null) a.style.transform = 'rotate(' + heading + 'deg)';
-  if (mapFollow) map.setView([pos.lat, pos.lon], map.getZoom(), { animate: false });
+  if (!mapZoomed) { mapZoomed = true; map.setView([pos.lat, pos.lon], 17, { animate: false }); }
+  else if (mapFollow) map.setView([pos.lat, pos.lon], map.getZoom(), { animate: false });
 }
 
 /* ================= start ================= */
